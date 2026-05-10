@@ -168,7 +168,9 @@ def write_file():
     if not target:
         return jsonify({'error': 'Invalid path'}), 400
     try:
-        os.makedirs(os.path.dirname(target), exist_ok=True)
+        parent = os.path.dirname(target)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(target, 'w', encoding='utf-8') as f:
             f.write(content)
         return jsonify({'success': True, 'path': path})
@@ -187,9 +189,12 @@ def new_file():
         if ftype == 'dir':
             os.makedirs(target, exist_ok=True)
         else:
-            os.makedirs(os.path.dirname(target), exist_ok=True)
+            parent = os.path.dirname(target)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
             if not os.path.exists(target):
-                open(target, 'w').close()
+                with open(target, 'w') as f:
+                    f.write('')
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -407,24 +412,33 @@ def terminal_cmd():
     cmd = data.get('command', '')
     cwd = data.get('cwd', active_workspace)
     
-    # Validate cwd stays in workspace or home
+    # Resolve cwd - allow home, workspace, /tmp, /sdcard, /storage
     home = os.path.expanduser('~')
-    abs_cwd = os.path.realpath(cwd)
-    if not (abs_cwd.startswith(home) or abs_cwd.startswith('/tmp')):
+    abs_cwd = os.path.realpath(cwd) if cwd else active_workspace
+    if not os.path.isdir(abs_cwd):
         abs_cwd = active_workspace
     
     try:
+        # Handle 'cd' commands by tracking directory change
+        # Wrap in a subshell that prints the final cwd
+        wrapped = f'cd {abs_cwd!r} 2>/dev/null; {cmd}; echo "@@CWD@@$(pwd)"'
         result = subprocess.run(
-            cmd, shell=True,
+            wrapped, shell=True,
             capture_output=True, text=True,
-            timeout=30, cwd=abs_cwd,
-            env={**os.environ}
+            timeout=30,
+            env={**os.environ, 'HOME': home}
         )
+        stdout = result.stdout
+        new_cwd = abs_cwd
+        if '@@CWD@@' in stdout:
+            parts = stdout.rsplit('@@CWD@@', 1)
+            stdout = parts[0]
+            new_cwd = parts[1].strip()
         return jsonify({
-            'stdout': result.stdout,
+            'stdout': stdout,
             'stderr': result.stderr,
             'returncode': result.returncode,
-            'cwd': abs_cwd
+            'cwd': new_cwd
         })
     except subprocess.TimeoutExpired:
         return jsonify({'stdout': '', 'stderr': 'Command timed out', 'returncode': -1, 'cwd': abs_cwd})

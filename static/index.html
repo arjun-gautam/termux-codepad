@@ -1006,12 +1006,13 @@ body {
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
+let active_workspace_path = '';
 const state = {
   tabs: [],         // [{id, path, name, content, modified, language}]
   activeTab: null,
   theme: 'dracula',
   fontSize: 13.5,
-  cwd: '~',
+  cwd: null,  // set on init from server
   termHistory: [],
   termHistIdx: -1,
   panelCollapsed: false,
@@ -1260,11 +1261,15 @@ async function saveCurrentFile() {
     if (data.success) {
       tab.modified = false;
       renderTabs();
-      setStatus('Saved', 'success');
+      setStatus('✓ Saved', 'success');
       setTimeout(() => setStatus('Ready', ''), 2000);
+    } else {
+      setStatus('Save failed: ' + (data.error || 'unknown'), 'error');
+      outputLog('Save error: ' + (data.error || 'unknown'), 'err');
     }
   } catch(e) {
-    setStatus('Save failed', 'error');
+    setStatus('Save failed: ' + e.message, 'error');
+    outputLog('Save error: ' + e.message, 'err');
   }
 }
 
@@ -1407,16 +1412,24 @@ function setStatus(msg, cls='') {
 function newFileDialog(dir='') {
   openModal('New File', 'filename.py', async (name) => {
     if (!name) return;
-    const path = dir ? `${dir}/${name}` : name;
-    const res = await fetch('/api/file/new', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path, type: 'file'})
-    });
-    const data = await res.json();
-    if (data.success) {
-      await refreshTree();
-      openFile(path);
+    // Strip leading slashes from name, combine with dir
+    const cleanName = name.replace(/^\/+/, '');
+    const path = dir ? `${dir}/${cleanName}` : cleanName;
+    try {
+      const res = await fetch('/api/file/new', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path, type: 'file'})
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshTree();
+        await openFile(path);
+      } else {
+        outputLog('Error creating file: ' + (data.error || 'unknown'), 'err');
+      }
+    } catch(e) {
+      outputLog('Error creating file: ' + e.message, 'err');
     }
   });
 }
@@ -1557,17 +1570,19 @@ termInput.addEventListener('keydown', async e => {
       const res = await fetch('/api/terminal', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({command: cmd, cwd: state.cwd.replace('~', '/data/data/com.termux/files/home')})
+        body: JSON.stringify({command: cmd, cwd: state.cwd || active_workspace_path})
       });
       const data = await res.json();
       if (data.stdout) termAppend(data.stdout, 'stdout');
       if (data.stderr) termAppend(data.stderr, 'stderr');
       if (data.cwd) {
-        const home = /\/data\/data\/com\.termux\/files\/home/.test(data.cwd)
-          ? data.cwd.replace(/.*\/home/, '~')
-          : data.cwd;
-        state.cwd = home;
-        document.getElementById('term-cwd').textContent = home;
+        state.cwd = data.cwd;
+        // Show shortened path: replace home dir with ~
+        const homeRe = /^\/data\/data\/com\.termux\/files\/home/;
+        const display = homeRe.test(data.cwd)
+          ? data.cwd.replace(homeRe, '~')
+          : (data.cwd.length > 30 ? '...' + data.cwd.slice(-27) : data.cwd);
+        document.getElementById('term-cwd').textContent = display;
       }
     } catch(err) {
       termAppend(`Error: ${err.message}\n`, 'stderr');
@@ -1655,6 +1670,13 @@ async function loadSystemInfo() {
     const data = await res.json();
     const tools = Object.entries(data.tools || {}).filter(([,v]) => v).map(([k]) => k);
     outputLog(`TermuxPad ready. Available: ${tools.join(', ') || 'none detected'}`, 'info');
+    if (data.workspace) {
+      active_workspace_path = data.workspace;
+      if (!state.cwd) {
+        state.cwd = data.workspace;
+        document.getElementById('term-cwd').textContent = data.workspace;
+      }
+    }
   } catch(e) {}
 }
 
@@ -1822,12 +1844,13 @@ async function confirmOpenProject() {
     const data = await res.json();
     if (data.success) {
       addRecent(path);
+      active_workspace_path = data.workspace;
+      state.cwd = data.workspace;
+      document.getElementById('term-cwd').textContent = data.workspace;
       closeProjectExplorer();
       // Close all open tabs
-      [...state.tabs].forEach(t => {
-        state.tabs = [];
-        state.activeTab = null;
-      });
+      state.tabs = [];
+      state.activeTab = null;
       showEditor(false);
       renderTabs();
       // Load new tree
