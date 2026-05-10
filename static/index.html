@@ -502,7 +502,7 @@ body {
   display: none;
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.7);
-  z-index: 1000;
+  z-index: 3000;
   align-items: center;
   justify-content: center;
 }
@@ -554,7 +554,7 @@ body {
   border: 1px solid var(--border2);
   border-radius: 6px;
   padding: 4px;
-  z-index: 500;
+  z-index: 3500;
   min-width: 160px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
@@ -905,7 +905,7 @@ body {
   <div id="sidebar">
     <div class="sidebar-section flex1">
       <div class="sidebar-header">
-        Explorer
+        <span id="sidebar-project-name" title="Click to rename project folder" style="cursor:pointer;" onclick="renameProjectFolder()">Explorer</span>
         <div class="sidebar-header-btns">
           <button class="sidebar-icon-btn" onclick="newFileDialog()" title="New File">+</button>
           <button class="sidebar-icon-btn" onclick="newFolderDialog()" title="New Folder">📁</button>
@@ -924,7 +924,7 @@ body {
         <div class="big-icon">📁</div>
         <h2>No Project Open</h2>
         <p>Open a project folder to start coding</p>
-        <button onclick="openProjectExplorer()" style="margin-top:16px;padding:10px 20px;background:var(--accent2);border:1px solid var(--accent);border-radius:6px;color:#fff;font-family:inherit;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;">📂 Open Project Folder</button>
+        <button onclick="openProjectExplorer()" style="margin-top:16px;padding:10px 20px;background:var(--accent2);border:1px solid var(--accent);border-radius:6px;color:#fff;font-family:inherit;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:8pxn-items:center;gap:8px;">📂 Open Project Folder</button>
         <p style="margin-top:8px; color: var(--fg3); font-size:11px">Ctrl+O · Open Project &nbsp;|&nbsp; Ctrl+N · New File</p>
       </div>
       <textarea id="cm-editor" style="display:none;"></textarea>
@@ -935,7 +935,7 @@ body {
     <!-- Output Panel -->
     <div id="output-panel">
       <div class="panel-header" onclick="togglePanel()">
-        <div class="panel-tabs" onclick="e => e.stopPropagation()">
+        <div class="panel-tabs" onclick="event.stopPropagation()">
           <button class="panel-tab active" onclick="switchPanelTab('output', event)">Output</button>
           <button class="panel-tab" onclick="switchPanelTab('terminal', event)">Terminal</button>
           <button class="panel-tab" onclick="switchPanelTab('stdin', event)">Stdin</button>
@@ -998,23 +998,26 @@ body {
 
 <!-- Context Menu -->
 <div class="ctx-menu" id="ctx-menu">
-  <div class="ctx-item" onclick="ctxAction('open')">📄 Open</div>
+  <div class="ctx-item" id="ctx-open" onclick="ctxAction('open')">📄 Open</div>
+  <div class="ctx-item" id="ctx-newfile" onclick="ctxAction('newfile')">📄 New File Here</div>
+  <div class="ctx-item" id="ctx-newfolder" onclick="ctxAction('newfolder')">📁 New Folder Here</div>
   <div class="ctx-item" onclick="ctxAction('rename')">✏️ Rename</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item danger" onclick="ctxAction('delete')">🗑 Delete</div>
 </div>
 
 <script>
-// ── State ──────────────────────────────────────────────────────────────────
-let active_workspace_path = '';
+// ══════════════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════════════
+let WORKSPACE = '';   // set from server on load
+let termCwd = '';     // current terminal directory
+
 const state = {
-  tabs: [],         // [{id, path, name, content, modified, language}]
+  tabs: [],
   activeTab: null,
   theme: 'dracula',
   fontSize: 13.5,
-  cwd: null,  // set on init from server
-  termHistory: [],
-  termHistIdx: -1,
   panelCollapsed: false,
   sidebarVisible: true,
   ctxTarget: null,
@@ -1026,37 +1029,35 @@ let panelResizing = false;
 
 // ── Language Config ────────────────────────────────────────────────────────
 const LANG_MAP = {
-  python:     { mode: 'python',     exts: ['.py'],          icon: '🐍' },
-  javascript: { mode: 'javascript', exts: ['.js','.mjs'],   icon: '🟡' },
-  typescript: { mode: 'javascript', exts: ['.ts'],          icon: '🔷' },
-  c:          { mode: 'text/x-csrc', exts: ['.c'],          icon: '⚙' },
-  cpp:        { mode: 'text/x-c++src', exts: ['.cpp','.cc'],icon: '⚙' },
-  java:       { mode: 'text/x-java', exts: ['.java'],       icon: '☕' },
-  go:         { mode: 'go',         exts: ['.go'],           icon: '🔵' },
-  rust:       { mode: 'rust',       exts: ['.rs'],           icon: '🦀' },
-  bash:       { mode: 'shell',      exts: ['.sh','.bash'],  icon: '🐚' },
-  ruby:       { mode: 'ruby',       exts: ['.rb'],           icon: '💎' },
-  php:        { mode: 'php',        exts: ['.php'],          icon: '🐘' },
-  lua:        { mode: 'lua',        exts: ['.lua'],          icon: '🌙' },
-  perl:       { mode: 'perl',       exts: ['.pl'],           icon: '🐪' },
-  html:       { mode: 'htmlmixed',  exts: ['.html','.htm'], icon: '🌐' },
-  css:        { mode: 'css',        exts: ['.css'],          icon: '🎨' },
-  markdown:   { mode: 'markdown',   exts: ['.md'],           icon: '📝' },
+  python:     { mode: 'python',        exts: ['.py'],           icon: '🐍' },
+  javascript: { mode: 'javascript',    exts: ['.js','.mjs'],    icon: '🟡' },
+  typescript: { mode: 'javascript',    exts: ['.ts'],           icon: '🔷' },
+  c:          { mode: 'text/x-csrc',   exts: ['.c'],            icon: '⚙'  },
+  cpp:        { mode: 'text/x-c++src', exts: ['.cpp','.cc'],    icon: '⚙'  },
+  java:       { mode: 'text/x-java',   exts: ['.java'],         icon: '☕' },
+  go:         { mode: 'go',            exts: ['.go'],            icon: '🔵' },
+  rust:       { mode: 'rust',          exts: ['.rs'],            icon: '🦀' },
+  bash:       { mode: 'shell',         exts: ['.sh','.bash'],   icon: '🐚' },
+  ruby:       { mode: 'ruby',          exts: ['.rb'],            icon: '💎' },
+  php:        { mode: 'php',           exts: ['.php'],           icon: '🐘' },
+  lua:        { mode: 'lua',           exts: ['.lua'],           icon: '🌙' },
+  perl:       { mode: 'perl',          exts: ['.pl'],            icon: '🐪' },
+  html:       { mode: 'htmlmixed',     exts: ['.html','.htm'],  icon: '🌐' },
+  css:        { mode: 'css',           exts: ['.css'],           icon: '🎨' },
+  markdown:   { mode: 'markdown',      exts: ['.md'],            icon: '📝' },
 };
 
 function getLangByExt(filename) {
   const ext = '.' + filename.split('.').pop().toLowerCase();
-  for (const [lang, cfg] of Object.entries(LANG_MAP)) {
+  for (const [lang, cfg] of Object.entries(LANG_MAP))
     if (cfg.exts.includes(ext)) return lang;
-  }
   return 'python';
 }
+function getLangIcon(lang) { return (LANG_MAP[lang] || {}).icon || '📄'; }
 
-function getLangIcon(lang) {
-  return (LANG_MAP[lang] || {}).icon || '📄';
-}
-
-// ── CodeMirror Init ────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// EDITOR INIT
+// ══════════════════════════════════════════════════════════════════════════
 function initEditor() {
   editor = CodeMirror.fromTextArea(document.getElementById('cm-editor'), {
     theme: state.theme,
@@ -1065,106 +1066,105 @@ function initEditor() {
     autoCloseBrackets: true,
     styleActiveLine: true,
     foldGutter: true,
-    gutters: ['CodeMirror-linenumbers','CodeMirror-foldgutter'],
+    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
     indentUnit: 4,
     tabSize: 4,
     indentWithTabs: false,
     lineWrapping: false,
     keyMap: 'sublime',
     extraKeys: {
-      'Ctrl-S':    () => saveCurrentFile(),
-      'Ctrl-N':    () => newFileDialog(),
-      'Ctrl-B':    () => toggleSidebar(),
-      'F5':        () => runCode(),
-      'Ctrl-/':    'toggleComment',
+      'Ctrl-S':     () => saveCurrentFile(),
+      'Ctrl-N':     () => newFileDialog(),
+      'Ctrl-B':     () => toggleSidebar(),
+      'F5':         () => runCode(),
+      'Ctrl-/':     'toggleComment',
       'Ctrl-Enter': () => runCode(),
     }
   });
-
   editor.on('change', () => {
-    if (state.activeTab) {
-      const tab = state.tabs.find(t => t.id === state.activeTab);
-      if (tab && editor.getValue() !== tab.content) {
-        tab.modified = true;
-        renderTabs();
-      }
-    }
+    if (!state.activeTab) return;
+    const tab = state.tabs.find(t => t.id === state.activeTab);
+    if (tab && editor.getValue() !== tab.content) { tab.modified = true; renderTabs(); }
   });
-
   editor.on('cursorActivity', () => {
-    const cur = editor.getCursor();
-    document.getElementById('sb-cursor').textContent =
-      `Ln ${cur.line+1}, Col ${cur.ch+1}`;
+    const c = editor.getCursor();
+    document.getElementById('sb-cursor').textContent = `Ln ${c.line+1}, Col ${c.ch+1}`;
   });
-
-  // Hide CM until file open
   document.querySelector('.CodeMirror').style.display = 'none';
 }
 
-// ── File Tree ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// FILE TREE
+// ══════════════════════════════════════════════════════════════════════════
 async function refreshTree() {
-  const res = await fetch('/api/files');
-  const data = await res.json();
-  renderTree(data.tree, document.getElementById('file-tree'), '');
+  try {
+    const res = await fetch('/api/files');
+    const data = await res.json();
+    if (data.workspace) WORKSPACE = data.workspace;
+    renderTree(data.tree || [], document.getElementById('file-tree'), '');
+  } catch(e) { console.error('refreshTree:', e); }
 }
 
 function renderTree(items, container, parentPath) {
   container.innerHTML = '';
+  if (!items || items.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:20px 12px;font-size:11px;color:var(--fg3);text-align:center;';
+    empty.textContent = 'Empty folder — click + to add a file';
+    container.appendChild(empty);
+    return;
+  }
+  const activeTab = state.tabs.find(t => t.id === state.activeTab);
   items.forEach(item => {
     const el = document.createElement('div');
-    el.className = 'tree-item' + (item.type === 'dir' ? ' dir' : '');
+    el.className = 'tree-item';
     el.dataset.path = item.path;
     el.dataset.type = item.type;
-
-    const activeTab = state.tabs.find(t => t.id === state.activeTab);
     if (activeTab && activeTab.path === item.path) el.classList.add('active');
-
     el.innerHTML = `
       <span class="icon">${item.type === 'dir' ? '📁' : getLangIcon(getLangByExt(item.name))}</span>
       <span class="name">${item.name}</span>
       <div class="tree-actions">
-        <button class="tree-action-btn" onclick="treeRename(event,'${item.path}')" title="Rename">✏</button>
-        <button class="tree-action-btn" onclick="treeDelete(event,'${item.path}')" title="Delete">✕</button>
-      </div>
-    `;
+        <button class="tree-action-btn" title="Rename" onclick="treeRename(event,'${item.path.replace(/'/g,"\\'")}')">✏</button>
+        <button class="tree-action-btn" title="Delete" onclick="treeDelete(event,'${item.path.replace(/'/g,"\\'")}')">✕</button>
+      </div>`;
 
     if (item.type === 'file') {
       el.addEventListener('click', () => openFile(item.path));
+      el.addEventListener('contextmenu', e => showCtxMenu(e, item.path, item.type));
     } else {
       let open = false;
       const childWrap = document.createElement('div');
       childWrap.style.paddingLeft = '14px';
       childWrap.style.display = 'none';
       if (item.children) renderTree(item.children, childWrap, item.path);
-
       el.addEventListener('click', () => {
         open = !open;
         childWrap.style.display = open ? 'block' : 'none';
         el.querySelector('.icon').textContent = open ? '📂' : '📁';
       });
+      el.addEventListener('contextmenu', e => showCtxMenu(e, item.path, item.type));
       container.appendChild(el);
       container.appendChild(childWrap);
       return;
     }
-
-    el.addEventListener('contextmenu', e => showCtxMenu(e, item.path, item.type));
     container.appendChild(el);
   });
 }
 
-// ── Tabs ───────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════════════════════════════════
 function renderTabs() {
   const bar = document.getElementById('tabs-bar');
   bar.innerHTML = '';
   state.tabs.forEach(tab => {
     const el = document.createElement('div');
     el.className = 'tab' + (tab.id === state.activeTab ? ' active' : '') + (tab.modified ? ' modified' : '');
-    el.dataset.id = tab.id;
     el.innerHTML = `
       <span class="tab-icon">${getLangIcon(tab.language)}</span>
       <span class="tab-name">${tab.name}</span>
-      <button class="tab-close" onclick="closeTab('${tab.id}', event)">×</button>
-    `;
+      <button class="tab-close" onclick="closeTab('${tab.id}',event)">×</button>`;
     el.addEventListener('click', () => activateTab(tab.id));
     bar.appendChild(el);
   });
@@ -1173,22 +1173,19 @@ function renderTabs() {
 function activateTab(id) {
   const tab = state.tabs.find(t => t.id === id);
   if (!tab) return;
-
-  // Save current editor content to current tab
   if (state.activeTab && editor) {
     const cur = state.tabs.find(t => t.id === state.activeTab);
     if (cur) cur.content = editor.getValue();
   }
-
   state.activeTab = id;
   showEditor(true);
   editor.setValue(tab.content);
-  editor.setOption('mode', (LANG_MAP[tab.language] || {}).mode || 'python');
+  editor.setOption('mode', (LANG_MAP[tab.language] || {}).mode || 'text/plain');
   document.getElementById('lang-select').value = tab.language;
   document.getElementById('sb-file').textContent = tab.name;
   document.getElementById('sb-lang').textContent = tab.language;
   renderTabs();
-  refreshTree();
+  renderTree; // don't refresh, just highlight
   editor.refresh();
   editor.focus();
 }
@@ -1197,22 +1194,13 @@ function closeTab(id, event) {
   event && event.stopPropagation();
   const idx = state.tabs.findIndex(t => t.id === id);
   if (idx === -1) return;
-  const tab = state.tabs[idx];
-  if (tab.modified) {
-    if (!confirm(`"${tab.name}" has unsaved changes. Close anyway?`)) return;
-  }
+  if (state.tabs[idx].modified && !confirm(`"${state.tabs[idx].name}" has unsaved changes. Close anyway?`)) return;
   state.tabs.splice(idx, 1);
   if (state.activeTab === id) {
-    const next = state.tabs[idx] || state.tabs[idx-1];
-    if (next) { activateTab(next.id); }
-    else {
-      state.activeTab = null;
-      showEditor(false);
-      renderTabs();
-    }
-  } else {
-    renderTabs();
-  }
+    const next = state.tabs[idx] || state.tabs[idx - 1];
+    if (next) activateTab(next.id);
+    else { state.activeTab = null; showEditor(false); renderTabs(); }
+  } else renderTabs();
 }
 
 function showEditor(show) {
@@ -1221,19 +1209,21 @@ function showEditor(show) {
   if (cm) cm.style.display = show ? 'block' : 'none';
 }
 
-// ── File Operations ────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// FILE OPERATIONS
+// ══════════════════════════════════════════════════════════════════════════
 async function openFile(path) {
   const existing = state.tabs.find(t => t.path === path);
   if (existing) { activateTab(existing.id); return; }
-
   try {
-    const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
-    if (!res.ok) throw new Error('File not found');
+    const res = await fetch('/api/file?path=' + encodeURIComponent(path));
+    if (!res.ok) { outputLog('Cannot open: ' + path, 'err'); return; }
     const data = await res.json();
+    if (data.error) { outputLog('Cannot open: ' + data.error, 'err'); return; }
     const lang = getLangByExt(data.name);
     const tab = {
       id: 'tab_' + Date.now() + '_' + Math.random().toString(36).slice(2),
-      path: path,
+      path,
       name: data.name,
       content: data.content,
       modified: false,
@@ -1241,21 +1231,19 @@ async function openFile(path) {
     };
     state.tabs.push(tab);
     activateTab(tab.id);
-  } catch(e) {
-    outputLog(`Error opening file: ${e.message}`, 'err');
-  }
+  } catch(e) { outputLog('Error opening file: ' + e.message, 'err'); }
 }
 
 async function saveCurrentFile() {
-  if (!state.activeTab) return;
+  if (!state.activeTab) { setStatus('Nothing to save', ''); return; }
   const tab = state.tabs.find(t => t.id === state.activeTab);
   if (!tab) return;
   tab.content = editor.getValue();
   try {
     const res = await fetch('/api/file', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: tab.path, content: tab.content})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: tab.path, content: tab.content }),
     });
     const data = await res.json();
     if (data.success) {
@@ -1264,25 +1252,119 @@ async function saveCurrentFile() {
       setStatus('✓ Saved', 'success');
       setTimeout(() => setStatus('Ready', ''), 2000);
     } else {
-      setStatus('Save failed: ' + (data.error || 'unknown'), 'error');
-      outputLog('Save error: ' + (data.error || 'unknown'), 'err');
+      const msg = 'Save failed: ' + (data.error || 'unknown error');
+      setStatus(msg, 'error');
+      outputLog(msg, 'err');
+      expandPanel();
     }
   } catch(e) {
-    setStatus('Save failed: ' + e.message, 'error');
+    setStatus('Save error: ' + e.message, 'error');
     outputLog('Save error: ' + e.message, 'err');
+    expandPanel();
   }
 }
 
-// ── Language & Theme ───────────────────────────────────────────────────────
+// ── New file / folder ──────────────────────────────────────────────────────
+function newFileDialog(dir) {
+  openModal('New File', 'filename.py', async (name) => {
+    if (!name) return;
+    const clean = name.trim().replace(/^\/+/, '');
+    if (!clean) return;
+    const path = dir ? (dir + '/' + clean) : clean;
+    try {
+      const res = await fetch('/api/file/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, type: 'file' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshTree();
+        await openFile(path);
+      } else {
+        outputLog('Create failed: ' + (data.error || 'unknown'), 'err');
+        expandPanel();
+      }
+    } catch(e) { outputLog('Create error: ' + e.message, 'err'); expandPanel(); }
+  });
+}
+
+function newFolderDialog(dir) {
+  openModal('New Folder', 'folder-name', async (name) => {
+    if (!name) return;
+    const clean = name.trim().replace(/^\/+/, '');
+    if (!clean) return;
+    const path = dir ? (dir + '/' + clean) : clean;
+    try {
+      const res = await fetch('/api/file/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, type: 'dir' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refreshTree();
+      } else {
+        outputLog('Create folder failed: ' + (data.error || 'unknown'), 'err');
+        expandPanel();
+      }
+    } catch(e) { outputLog('Create folder error: ' + e.message, 'err'); expandPanel(); }
+  });
+}
+
+// ── Rename / Delete ────────────────────────────────────────────────────────
+function treeRename(e, path) {
+  e.stopPropagation();
+  const name = path.split('/').pop();
+  openModal('Rename', name, async (newName) => {
+    if (!newName || newName === name) return;
+
+    const newPath = path.includes('/') ? path.replace(/[^/]+$/, newName) : newName;
+
+    const res = await fetch('/api/file/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old_path: path, new_path: newPath }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      // Update tab path if open
+      const tab = state.tabs.find(t => t.path === path);
+      if (tab) { tab.path = newPath; tab.name = newName; renderTabs(); }
+      await refreshTree();
+    } else {
+      outputLog('Rename failed: ' + (data.error || ''), 'err');
+    }
+  }, name);
+}
+
+function treeDelete(e, path) {
+  e.stopPropagation();
+  if (!confirm(`Delete "${path.split('/').pop()}"?`)) return;
+  fetch('/api/file/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).then(r => r.json()).then(d => {
+    if (d.success) {
+      const tab = state.tabs.find(t => t.path === path);
+      if (tab) closeTab(tab.id);
+      refreshTree();
+    } else {
+      outputLog('Delete failed: ' + (d.error || ''), 'err');
+    }
+  });
+}
+
+// ── Language / Theme ────────────────────────────────────────────────────────
 function changeLanguage(lang) {
-  if (!state.activeTab) return;
+  if (!state.activeTab || !editor) return;
   const tab = state.tabs.find(t => t.id === state.activeTab);
-  if (tab) {
-    tab.language = lang;
-    editor.setOption('mode', (LANG_MAP[lang] || {}).mode || 'text/plain');
-    document.getElementById('sb-lang').textContent = lang;
-    renderTabs();
-  }
+  if (!tab) return;
+  tab.language = lang;
+  editor.setOption('mode', (LANG_MAP[lang] || {}).mode || 'text/plain');
+  document.getElementById('sb-lang').textContent = lang;
+  renderTabs();
 }
 
 function changeTheme(theme) {
@@ -1290,62 +1372,53 @@ function changeTheme(theme) {
   if (editor) editor.setOption('theme', theme);
 }
 
-// ── Run Code ───────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// RUN CODE
+// ══════════════════════════════════════════════════════════════════════════
 async function runCode() {
   if (!state.activeTab) { outputLog('No file open.', 'warn'); return; }
   const tab = state.tabs.find(t => t.id === state.activeTab);
   if (!tab) return;
-
-  // Save first
   await saveCurrentFile();
-
-  const code = editor.getValue();
-  const language = tab.language;
-  const stdin = document.getElementById('stdin-input').value;
-
   switchPanelTab('output');
   outputClear();
-  outputLog(`▶ Running ${tab.name} (${language})...`, 'info');
+  outputLog(`▶ Running ${tab.name} (${tab.language})...`, 'info');
   setStatus('Running...', 'running');
-
-  document.getElementById('run-btn').disabled = true;
-  document.getElementById('run-btn').innerHTML = '<span class="spinner"></span><span>Running</span>';
-
-  const start = Date.now();
+  const runBtn = document.getElementById('run-btn');
+  runBtn.disabled = true;
+  runBtn.innerHTML = '<span class="spinner"></span><span>Running</span>';
+  const t0 = Date.now();
   try {
     const res = await fetch('/api/run', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({code, language, stdin, timeout: 30})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: editor.getValue(), language: tab.language, stdin: document.getElementById('stdin-input').value, timeout: 30 }),
     });
     const data = await res.json();
-    const elapsed = ((Date.now() - start) / 1000).toFixed(2);
-
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
     if (data.stdout) outputAppend(data.stdout, 'stdout');
     if (data.stderr) outputAppend(data.stderr, 'stderr');
     if (!data.stdout && !data.stderr) outputLog('(No output)', 'warn');
-
-    if (data.error) {
-      outputLog(`⚠ ${data.error}`, 'warn');
-    }
-
-    const exitOk = data.returncode === 0;
-    outputLog(`\n─── ${exitOk ? '✓' : '✗'} Exited with code ${data.returncode} in ${elapsed}s ───`, exitOk ? 'success' : 'err');
-    setStatus(exitOk ? '✓ Success' : `✗ Error (${data.returncode})`, exitOk ? 'success' : 'error');
+    const ok = data.returncode === 0;
+    outputLog(`\n─── ${ok ? '✓' : '✗'} Exited ${data.returncode} in ${elapsed}s ───`, ok ? 'success' : 'err');
+    setStatus(ok ? '✓ Success' : `✗ Error (${data.returncode})`, ok ? 'success' : 'error');
   } catch(e) {
-    outputLog(`Request failed: ${e.message}`, 'err');
+    outputLog('Request failed: ' + e.message, 'err');
     setStatus('Failed', 'error');
   } finally {
-    document.getElementById('run-btn').disabled = false;
-    document.getElementById('run-btn').innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/></svg><span>Run</span>';
+    runBtn.disabled = false;
+    runBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/></svg><span>Run</span>';
   }
 }
 
-// ── Output Helpers ─────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// OUTPUT PANEL
+// ══════════════════════════════════════════════════════════════════════════
 function outputLog(msg, type='info') {
   const el = document.getElementById('output-text');
   const span = document.createElement('span');
-  span.className = type === 'err' ? 'out-stderr' : type === 'info' ? 'out-info' : type === 'success' ? 'out-success' : type === 'warn' ? 'out-warn' : 'out-stdout';
+  const cls = {err:'out-stderr', info:'out-info', success:'out-success', warn:'out-warn'}[type] || 'out-stdout';
+  span.className = cls;
   span.textContent = msg + '\n';
   el.appendChild(span);
   el.scrollTop = el.scrollHeight;
@@ -1354,34 +1427,31 @@ function outputLog(msg, type='info') {
 function outputAppend(text, cls='stdout') {
   const el = document.getElementById('output-text');
   const span = document.createElement('span');
-  span.className = `out-${cls}`;
+  span.className = 'out-' + cls;
   span.textContent = text;
   el.appendChild(span);
   el.scrollTop = el.scrollHeight;
 }
-function outputClear() {
-  document.getElementById('output-text').innerHTML = '';
-}
+function outputClear() { document.getElementById('output-text').innerHTML = ''; }
 function clearOutput(e) {
   e && e.stopPropagation();
   outputClear();
   document.getElementById('terminal-text').innerHTML = '';
 }
-
-// ── Panel ──────────────────────────────────────────────────────────────────
 function expandPanel() {
   if (state.panelCollapsed) {
     state.panelCollapsed = false;
-    document.getElementById('output-panel').classList.remove('collapsed');
-    document.getElementById('output-panel').style.height = '220px';
+    const p = document.getElementById('output-panel');
+    p.classList.remove('collapsed');
+    p.style.height = '220px';
   }
 }
 function togglePanel(e) {
   e && e.stopPropagation();
   state.panelCollapsed = !state.panelCollapsed;
-  const panel = document.getElementById('output-panel');
-  panel.classList.toggle('collapsed', state.panelCollapsed);
-  if (!state.panelCollapsed) panel.style.height = '220px';
+  const p = document.getElementById('output-panel');
+  p.classList.toggle('collapsed', state.panelCollapsed);
+  if (!state.panelCollapsed) p.style.height = '220px';
 }
 function switchPanelTab(name, e) {
   e && e.stopPropagation();
@@ -1394,163 +1464,26 @@ function switchPanelTab(name, e) {
   expandPanel();
 }
 
-// ── Sidebar ────────────────────────────────────────────────────────────────
-function toggleSidebar() {
-  state.sidebarVisible = !state.sidebarVisible;
-  document.getElementById('sidebar').classList.toggle('collapsed', !state.sidebarVisible);
-  if (editor) setTimeout(() => editor.refresh(), 200);
-}
-
-// ── Status Bar ─────────────────────────────────────────────────────────────
-function setStatus(msg, cls='') {
-  const el = document.getElementById('run-status');
-  el.textContent = msg;
-  el.className = cls;
-}
-
-// ── Modals ─────────────────────────────────────────────────────────────────
-function newFileDialog(dir='') {
-  openModal('New File', 'filename.py', async (name) => {
-    if (!name) return;
-    // Strip leading slashes from name, combine with dir
-    const cleanName = name.replace(/^\/+/, '');
-    const path = dir ? `${dir}/${cleanName}` : cleanName;
-    try {
-      const res = await fetch('/api/file/new', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({path, type: 'file'})
-      });
-      const data = await res.json();
-      if (data.success) {
-        await refreshTree();
-        await openFile(path);
-      } else {
-        outputLog('Error creating file: ' + (data.error || 'unknown'), 'err');
-      }
-    } catch(e) {
-      outputLog('Error creating file: ' + e.message, 'err');
-    }
-  });
-}
-
-function newFolderDialog() {
-  openModal('New Folder', 'folder-name', async (name) => {
-    if (!name) return;
-    const res = await fetch('/api/file/new', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: name, type: 'dir'})
-    });
-    if ((await res.json()).success) refreshTree();
-  });
-}
-
-function openModal(title, placeholder, cb) {
-  document.getElementById('modal-title').textContent = title;
-  document.getElementById('modal-input').placeholder = placeholder;
-  document.getElementById('modal-input').value = '';
-  document.getElementById('modal').classList.add('show');
-  modalCallback = cb;
-  setTimeout(() => document.getElementById('modal-input').focus(), 50);
-}
-
-function closeModal() {
-  document.getElementById('modal').classList.remove('show');
-  modalCallback = null;
-}
-
-function confirmModal() {
-  const val = document.getElementById('modal-input').value.trim();
-  closeModal();
-  if (modalCallback) modalCallback(val);
-}
-
-document.getElementById('modal-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') confirmModal();
-  if (e.key === 'Escape') closeModal();
-});
-
-// ── Context Menu ───────────────────────────────────────────────────────────
-function showCtxMenu(e, path, type) {
-  e.preventDefault();
-  state.ctxTarget = {path, type};
-  const menu = document.getElementById('ctx-menu');
-  menu.style.left = e.clientX + 'px';
-  menu.style.top = e.clientY + 'px';
-  menu.classList.add('show');
-}
-
-async function ctxAction(action) {
-  const {path, type} = state.ctxTarget || {};
-  document.getElementById('ctx-menu').classList.remove('show');
-  if (!path) return;
-
-  if (action === 'open' && type === 'file') {
-    openFile(path);
-  } else if (action === 'rename') {
-    const name = path.split('/').pop();
-    openModal('Rename', name, async (newName) => {
-      if (!newName || newName === name) return;
-      const newPath = path.replace(/[^/]+$/, newName);
-      const res = await fetch('/api/file/rename', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({old_path: path, new_path: newPath})
-      });
-      if ((await res.json()).success) refreshTree();
-    });
-  } else if (action === 'delete') {
-    if (!confirm(`Delete "${path.split('/').pop()}"?`)) return;
-    const res = await fetch('/api/file/delete', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path})
-    });
-    if ((await res.json()).success) {
-      // Close tab if open
-      const tab = state.tabs.find(t => t.path === path);
-      if (tab) closeTab(tab.id);
-      refreshTree();
-    }
-  }
-}
-
-function treeRename(e, path) {
-  e.stopPropagation();
-  const name = path.split('/').pop();
-  openModal('Rename', name, async (newName) => {
-    if (!newName || newName === name) return;
-    const newPath = path.includes('/') ? path.replace(/[^/]+$/, newName) : newName;
-    const res = await fetch('/api/file/rename', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({old_path: path, new_path: newPath})
-    });
-    if ((await res.json()).success) refreshTree();
-  });
-}
-
-function treeDelete(e, path) {
-  e.stopPropagation();
-  if (!confirm(`Delete "${path.split('/').pop()}"?`)) return;
-  fetch('/api/file/delete', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path})
-  }).then(r => r.json()).then(d => {
-    if (d.success) {
-      const tab = state.tabs.find(t => t.path === path);
-      if (tab) closeTab(tab.id);
-      refreshTree();
-    }
-  });
-}
-
-// ── Terminal ───────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// TERMINAL
+// ══════════════════════════════════════════════════════════════════════════
 const termInput = document.getElementById('terminal-input');
 let termHistory = [];
 let termHistIdx = -1;
+
+function updateTermCwd(cwd) {
+  if (!cwd) return;
+  termCwd = cwd;
+  // Shorten for display
+  let display = cwd;
+  const termuxHome = '/data/data/com.termux/files/home';
+  if (display.startsWith(termuxHome)) {
+    display = '~' + display.slice(termuxHome.length);
+  } else if (display.length > 35) {
+    display = '...' + display.slice(-32);
+  }
+  document.getElementById('term-cwd').textContent = display || '~';
+}
 
 termInput.addEventListener('keydown', async e => {
   if (e.key === 'Enter') {
@@ -1560,33 +1493,22 @@ termInput.addEventListener('keydown', async e => {
     termHistIdx = -1;
     termInput.value = '';
     termAppend(`$ ${cmd}\n`, 'prompt');
+    if (cmd === 'clear') { document.getElementById('terminal-text').innerHTML = ''; return; }
 
-    if (cmd === 'clear') {
-      document.getElementById('terminal-text').innerHTML = '';
-      return;
-    }
+    // Use termCwd if set, otherwise fall back to WORKSPACE
+    const cwd = termCwd || WORKSPACE;
 
     try {
       const res = await fetch('/api/terminal', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({command: cmd, cwd: state.cwd || active_workspace_path})
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd, cwd }),
       });
       const data = await res.json();
       if (data.stdout) termAppend(data.stdout, 'stdout');
       if (data.stderr) termAppend(data.stderr, 'stderr');
-      if (data.cwd) {
-        state.cwd = data.cwd;
-        // Show shortened path: replace home dir with ~
-        const homeRe = /^\/data\/data\/com\.termux\/files\/home/;
-        const display = homeRe.test(data.cwd)
-          ? data.cwd.replace(homeRe, '~')
-          : (data.cwd.length > 30 ? '...' + data.cwd.slice(-27) : data.cwd);
-        document.getElementById('term-cwd').textContent = display;
-      }
-    } catch(err) {
-      termAppend(`Error: ${err.message}\n`, 'stderr');
-    }
+      if (data.cwd) updateTermCwd(data.cwd);
+    } catch(err) { termAppend('Error: ' + err.message + '\n', 'stderr'); }
   } else if (e.key === 'ArrowUp') {
     termHistIdx = Math.min(termHistIdx + 1, termHistory.length - 1);
     termInput.value = termHistory[termHistIdx] || '';
@@ -1607,32 +1529,104 @@ function termAppend(text, cls='stdout') {
   el.scrollTop = el.scrollHeight;
 }
 
-// ── Panel Resize ───────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// SIDEBAR
+// ══════════════════════════════════════════════════════════════════════════
+function toggleSidebar() {
+  state.sidebarVisible = !state.sidebarVisible;
+  document.getElementById('sidebar').classList.toggle('collapsed', !state.sidebarVisible);
+  if (editor) setTimeout(() => editor.refresh(), 200);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// STATUS BAR
+// ══════════════════════════════════════════════════════════════════════════
+function setStatus(msg, cls='') {
+  const el = document.getElementById('run-status');
+  el.textContent = msg;
+  el.className = cls;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MODAL
+// ══════════════════════════════════════════════════════════════════════════
+function openModal(title, placeholder, cb, initialValue) {
+  document.getElementById('modal-title').textContent = title;
+  const inp = document.getElementById('modal-input');
+  inp.placeholder = placeholder;
+  inp.value = initialValue !== undefined ? initialValue : '';
+  const confirmBtn = document.getElementById('modal-confirm');
+  confirmBtn.textContent = title.startsWith('Rename') ? 'Rename' : 'Create';
+  document.getElementById('modal').classList.add('show');
+  modalCallback = cb;
+  setTimeout(() => {
+    inp.focus();
+    if (initialValue) inp.select();
+  }, 80);
+}
+function closeModal() {
+  document.getElementById('modal').classList.remove('show');
+  modalCallback = null;
+}
+function confirmModal() {
+  const val = document.getElementById('modal-input').value.trim();
+  const cb = modalCallback;   // save before closeModal() nulls it
+  closeModal();
+  if (cb) cb(val);
+}
+document.getElementById('modal-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmModal();
+  if (e.key === 'Escape') closeModal();
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// CONTEXT MENU
+// ══════════════════════════════════════════════════════════════════════════
+function showCtxMenu(e, path, type) {
+  e.preventDefault();
+  state.ctxTarget = { path, type };
+  const m = document.getElementById('ctx-menu');
+  // Show/hide items based on type
+  document.getElementById('ctx-open').style.display = type === 'file' ? '' : 'none';
+  document.getElementById('ctx-newfile').style.display = type === 'dir' ? '' : 'none';
+  document.getElementById('ctx-newfolder').style.display = type === 'dir' ? '' : 'none';
+  m.style.left = e.clientX + 'px';
+  m.style.top = e.clientY + 'px';
+  m.classList.add('show');
+}
+async function ctxAction(action) {
+  const { path, type } = state.ctxTarget || {};
+  document.getElementById('ctx-menu').classList.remove('show');
+  if (!path) return;
+  if (action === 'open' && type === 'file') openFile(path);
+  else if (action === 'rename') treeRename({ stopPropagation: () => {} }, path);
+  else if (action === 'delete') treeDelete({ stopPropagation: () => {} }, path);
+  else if (action === 'newfile') newFileDialog(path);
+  else if (action === 'newfolder') newFolderDialog(path);
+}
+document.addEventListener('click', () => {
+  document.getElementById('ctx-menu').classList.remove('show');
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// PANEL RESIZE
+// ══════════════════════════════════════════════════════════════════════════
 const resizeEl = document.getElementById('panel-resize');
 let resizeStartY = 0, resizeStartH = 0;
-
 resizeEl.addEventListener('mousedown', e => {
   panelResizing = true;
   resizeStartY = e.clientY;
   resizeStartH = document.getElementById('output-panel').offsetHeight;
   document.body.style.cursor = 'row-resize';
 });
-
 document.addEventListener('mousemove', e => {
   if (!panelResizing) return;
-  const delta = resizeStartY - e.clientY;
-  const newH = Math.max(80, Math.min(600, resizeStartH + delta));
+  const newH = Math.max(80, Math.min(600, resizeStartH + resizeStartY - e.clientY));
   document.getElementById('output-panel').style.height = newH + 'px';
-  state.panelCollapsed = false;
   document.getElementById('output-panel').classList.remove('collapsed');
+  state.panelCollapsed = false;
 });
-
-document.addEventListener('mouseup', () => {
-  panelResizing = false;
-  document.body.style.cursor = '';
-});
-
-// Touch resize
+document.addEventListener('mouseup', () => { panelResizing = false; document.body.style.cursor = ''; });
 resizeEl.addEventListener('touchstart', e => {
   panelResizing = true;
   resizeStartY = e.touches[0].clientY;
@@ -1640,62 +1634,47 @@ resizeEl.addEventListener('touchstart', e => {
 });
 document.addEventListener('touchmove', e => {
   if (!panelResizing) return;
-  const delta = resizeStartY - e.touches[0].clientY;
-  const newH = Math.max(80, Math.min(500, resizeStartH + delta));
+  const newH = Math.max(80, Math.min(500, resizeStartH + resizeStartY - e.touches[0].clientY));
   document.getElementById('output-panel').style.height = newH + 'px';
 });
 document.addEventListener('touchend', () => { panelResizing = false; });
 
-// ── Close ctx menu on click ────────────────────────────────────────────────
-document.addEventListener('click', () => {
-  document.getElementById('ctx-menu').classList.remove('show');
-});
-
-// ── Settings placeholder ───────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// SETTINGS
+// ══════════════════════════════════════════════════════════════════════════
 function showSettings() {
   openModal('Font Size', String(state.fontSize), (size) => {
     const sz = parseFloat(size);
     if (!isNaN(sz) && sz > 6 && sz < 40) {
       state.fontSize = sz;
       document.querySelector('.CodeMirror').style.fontSize = sz + 'px';
-      editor.refresh();
+      if (editor) editor.refresh();
     }
   });
 }
 
-// ── System Info on load ────────────────────────────────────────────────────
-async function loadSystemInfo() {
-  try {
-    const res = await fetch('/api/system');
-    const data = await res.json();
-    const tools = Object.entries(data.tools || {}).filter(([,v]) => v).map(([k]) => k);
-    outputLog(`TermuxPad ready. Available: ${tools.join(', ') || 'none detected'}`, 'info');
-    if (data.workspace) {
-      active_workspace_path = data.workspace;
-      if (!state.cwd) {
-        state.cwd = data.workspace;
-        document.getElementById('term-cwd').textContent = data.workspace;
-      }
-    }
-  } catch(e) {}
-}
-
-
-// ── File System Explorer ────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// FILE SYSTEM EXPLORER (project picker)
+// ══════════════════════════════════════════════════════════════════════════
 const explorerState = {
   currentPath: null,
   selectedPath: null,
   selectedType: null,
-  history: [],
-  recent: JSON.parse(localStorage.getItem('tpad_recent') || '[]'),
 };
+
+let recentProjects = [];
+try { recentProjects = JSON.parse(localStorage.getItem('tpad_recent') || '[]'); } catch(_) {}
+
+function saveRecent(path) {
+  recentProjects = [path, ...recentProjects.filter(p => p !== path)].slice(0, 8);
+  try { localStorage.setItem('tpad_recent', JSON.stringify(recentProjects)); } catch(_) {}
+}
 
 function openProjectExplorer() {
   document.getElementById('explorer-overlay').classList.add('show');
-  // Start at home directory
-  const home = '/data/data/com.termux/files/home';
-  explorerBrowse(explorerState.currentPath || home);
   renderRecentLinks();
+  const startPath = explorerState.currentPath || WORKSPACE || '/data/data/com.termux/files/home';
+  explorerBrowse(startPath);
 }
 
 function closeProjectExplorer() {
@@ -1705,32 +1684,23 @@ function closeProjectExplorer() {
 function renderRecentLinks() {
   const el = document.getElementById('ql-recent');
   el.innerHTML = '';
-  explorerState.recent.slice(0, 5).forEach(p => {
-    const name = p.split('/').pop() || p;
+  recentProjects.slice(0, 5).forEach(p => {
+    const name = p.split('/').filter(Boolean).pop() || p;
     const div = document.createElement('div');
     div.className = 'ql-item';
-    div.innerHTML = `📁 <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${name}</span>`;
     div.title = p;
+    div.innerHTML = `<span>📁</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${name}</span>`;
     div.onclick = () => explorerBrowse(p);
     el.appendChild(div);
   });
 }
 
-function addRecent(path) {
-  explorerState.recent = [path, ...explorerState.recent.filter(p => p !== path)].slice(0, 10);
-  localStorage.setItem('tpad_recent', JSON.stringify(explorerState.recent));
-}
-
 async function explorerBrowse(path) {
-  const loading = document.getElementById('explorer-loading');
-  loading.classList.add('show');
+  document.getElementById('explorer-loading').classList.add('show');
   try {
     const res = await fetch('/api/explorer/browse?path=' + encodeURIComponent(path));
     const data = await res.json();
-    if (data.error) {
-      loading.classList.remove('show');
-      return;
-    }
+    if (data.error) { console.error('Explorer:', data.error); return; }
     explorerState.currentPath = data.path;
     explorerState.selectedPath = null;
     explorerState.selectedType = null;
@@ -1738,221 +1708,207 @@ async function explorerBrowse(path) {
     document.getElementById('exp-back-btn').disabled = !data.parent;
     document.getElementById('explorer-selected-path').textContent = 'Select a folder to open as project';
     document.getElementById('explorer-open-btn').disabled = true;
-    renderExplorerFiles(data.items);
-  } catch(e) {
-    console.error('Explorer browse error:', e);
-  } finally {
-    loading.classList.remove('show');
-  }
+    renderExplorerFiles(data.items || []);
+  } catch(e) { console.error('Explorer browse error:', e); }
+  finally { document.getElementById('explorer-loading').classList.remove('show'); }
+}
+
+function fileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  return {py:'🐍',js:'🟡',ts:'🔷',jsx:'⚛',tsx:'⚛',go:'🔵',rs:'🦀',java:'☕',
+          c:'⚙',cpp:'⚙',rb:'💎',php:'🐘',lua:'🌙',sh:'🐚',bash:'🐚',
+          html:'🌐',css:'🎨',md:'📝',json:'📋',yaml:'📋',txt:'📄',
+          xml:'📋',sql:'🗄',zip:'📦',png:'🖼',jpg:'🖼',svg:'🎨'}[ext] || '📄';
 }
 
 function renderExplorerFiles(items) {
   const container = document.getElementById('explorer-files');
   container.innerHTML = '';
-
-  if (!items || items.length === 0) {
-    const empty = document.createElement('div');
-    empty.id = 'explorer-empty';
-    empty.className = 'show';
-    empty.innerHTML = '<span style="font-size:32px">📂</span><span>Empty folder</span>';
-    container.appendChild(empty);
+  if (!items.length) {
+    container.innerHTML = '<div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:160px;color:var(--fg3);gap:8px;font-size:12px"><span style="font-size:28px">📂</span>Empty folder</div>';
     return;
   }
-
-  // Directories first, then files
   const dirs = items.filter(i => i.type === 'dir');
   const files = items.filter(i => i.type === 'file');
-
   [...dirs, ...files].forEach(item => {
     const el = document.createElement('div');
     el.className = 'explorer-item ' + (item.type === 'dir' ? 'dir-item' : 'file-item');
-    el.dataset.path = item.path;
-    el.dataset.type = item.type;
-
-    const icon = item.type === 'dir' ? '📁' : getFileIcon(item.name);
-
-    el.innerHTML = `
-      <div class="ei-icon">${icon}</div>
-      <div class="ei-name">${item.name}</div>
-    `;
-
+    el.innerHTML = `<div class="ei-icon">${item.type === 'dir' ? '📁' : fileIcon(item.name)}</div><div class="ei-name">${item.name}</div>`;
     if (item.type === 'dir') {
-      el.addEventListener('click', (e) => {
-        if (e.detail === 2) {
-          // Double click: navigate into
-          explorerBrowse(item.path);
-        } else {
-          // Single click: select
-          explorerSelect(el, item.path, item.type, item.name);
-        }
+      el.addEventListener('click', ev => {
+        if (ev.detail === 2) { explorerBrowse(item.path); return; }
+        selectExplorerItem(el, item.path, 'dir');
       });
     } else {
-      el.addEventListener('click', () => {
-        explorerSelect(el, item.path, item.type, item.name);
-      });
+      el.addEventListener('click', () => selectExplorerItem(el, item.path, 'file'));
     }
-
     container.appendChild(el);
   });
 }
 
-function explorerSelect(el, path, type, name) {
-  // Deselect all
+function selectExplorerItem(el, path, type) {
   document.querySelectorAll('.explorer-item.selected').forEach(e => e.classList.remove('selected'));
   el.classList.add('selected');
   explorerState.selectedPath = path;
   explorerState.selectedType = type;
-
   const openBtn = document.getElementById('explorer-open-btn');
-  const selLabel = document.getElementById('explorer-selected-path');
-
+  const label = document.getElementById('explorer-selected-path');
   if (type === 'dir') {
     openBtn.disabled = false;
-    selLabel.textContent = `📁 ${path}`;
+    label.textContent = '📁 ' + path;
   } else {
     openBtn.disabled = true;
-    selLabel.textContent = `(Select a folder — "${name}" is a file)`;
+    label.textContent = `"${path.split('/').pop()}" is a file — select a folder`;
   }
-}
-
-function getFileIcon(name) {
-  const ext = name.split('.').pop().toLowerCase();
-  const icons = {
-    py: '🐍', js: '🟡', ts: '🔷', jsx: '⚛', tsx: '⚛',
-    go: '🔵', rs: '🦀', java: '☕', c: '⚙', cpp: '⚙',
-    rb: '💎', php: '🐘', lua: '🌙', sh: '🐚', bash: '🐚',
-    html: '🌐', css: '🎨', md: '📝', json: '📋', yaml: '📋',
-    txt: '📄', xml: '📋', sql: '🗄', pdf: '📕', zip: '📦',
-    png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', svg: '🎨',
-  };
-  return icons[ext] || '📄';
 }
 
 async function confirmOpenProject() {
   const path = explorerState.selectedPath;
   if (!path || explorerState.selectedType !== 'dir') return;
-
-  document.getElementById('explorer-open-btn').disabled = true;
-  document.getElementById('explorer-open-btn').innerHTML = '<span class="spinner"></span> Opening...';
-
+  const btn = document.getElementById('explorer-open-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Opening...';
   try {
     const res = await fetch('/api/workspace/open', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
     });
     const data = await res.json();
     if (data.success) {
-      addRecent(path);
-      active_workspace_path = data.workspace;
-      state.cwd = data.workspace;
-      document.getElementById('term-cwd').textContent = data.workspace;
+      WORKSPACE = data.workspace;
+      termCwd = data.workspace;
+      updateTermCwd(data.workspace);
+      saveRecent(path);
       closeProjectExplorer();
-      // Close all open tabs
+      // Close all tabs
       state.tabs = [];
       state.activeTab = null;
       showEditor(false);
       renderTabs();
-      // Load new tree
-      renderTree(data.tree, document.getElementById('file-tree'), '');
-      // Update status bar and sidebar header
-      const folderName = path.split('/').pop() || path;
-      document.getElementById('sb-file').textContent = folderName;
-      document.querySelector('.sidebar-header').childNodes[0].textContent = folderName;
-      // Show close project button
+      // Update tree
+      renderTree(data.tree || [], document.getElementById('file-tree'), '');
+      // Update sidebar label
+      const folderName = path.split('/').filter(Boolean).pop() || path;
+      document.getElementById('sidebar-project-name').textContent = folderName;
       document.getElementById('close-project-btn').style.display = 'flex';
       document.getElementById('open-project-btn').style.display = 'none';
-      setStatus(`Opened: ${folderName}`, 'success');
+      setStatus('Opened: ' + folderName, 'success');
       setTimeout(() => setStatus('Ready', ''), 3000);
+    } else {
+      outputLog('Failed to open project: ' + (data.error || ''), 'err');
     }
-  } catch(e) {
-    console.error('Open workspace error:', e);
-  } finally {
-    const btn = document.getElementById('explorer-open-btn');
+  } catch(e) { outputLog('Open project error: ' + e.message, 'err'); }
+  finally {
     btn.disabled = false;
     btn.innerHTML = '📂 Open as Project';
   }
 }
 
 async function closeProject() {
-  if (state.tabs.some(t => t.modified)) {
-    if (!confirm('Some files have unsaved changes. Close project anyway?')) return;
-  }
+  if (state.tabs.some(t => t.modified) && !confirm('Unsaved changes. Close project anyway?')) return;
+  state.tabs = [];
+  state.activeTab = null;
+  showEditor(false);
+  renderTabs();
   // Reset to default workspace
   try {
     const res = await fetch('/api/workspace/open', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path: '/data/data/com.termux/files/home/termuxpad-workspace'})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: WORKSPACE || '/data/data/com.termux/files/home/termuxpad-workspace' }),
     });
     const data = await res.json();
-    state.tabs = [];
-    state.activeTab = null;
-    showEditor(false);
-    renderTabs();
-    if (data.tree) {
-      renderTree(data.tree, document.getElementById('file-tree'), '');
+    if (data.workspace) { WORKSPACE = data.workspace; termCwd = data.workspace; updateTermCwd(data.workspace); }
+    renderTree(data.tree || [], document.getElementById('file-tree'), '');
+  } catch(_) {}
+  document.getElementById('sidebar-project-name').textContent = 'Explorer';
+  document.getElementById('close-project-btn').style.display = 'none';
+  document.getElementById('open-project-btn').style.display = 'flex';
+  openProjectExplorer();
+}
+
+async function renameProjectFolder() {
+  if (!WORKSPACE || document.getElementById('sidebar-project-name').textContent === 'Explorer') return;
+  const currentName = WORKSPACE.split('/').filter(Boolean).pop();
+  openModal('Rename Project', currentName, async (newName) => {
+    if (!newName || newName === currentName) return;
+    const parentDir = WORKSPACE.substring(0, WORKSPACE.lastIndexOf('/'));
+    const newPath = parentDir + '/' + newName;
+    const res = await fetch('/api/file/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old_path: WORKSPACE, new_path: newPath }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      // Re-open at new path
+      const res2 = await fetch('/api/workspace/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: newPath }),
+      });
+      const data2 = await res2.json();
+      if (data2.success) {
+        WORKSPACE = data2.workspace;
+        termCwd = data2.workspace;
+        updateTermCwd(data2.workspace);
+        document.getElementById('sidebar-project-name').textContent = newName;
+        renderTree(data2.tree || [], document.getElementById('file-tree'), '');
+        setStatus('Renamed to: ' + newName, 'success');
+        setTimeout(() => setStatus('Ready', ''), 3000);
+      }
+    } else {
+      outputLog('Rename project failed: ' + (data.error || ''), 'err');
     }
-    document.querySelector('.sidebar-header').childNodes[0].textContent = 'Explorer';
-    document.getElementById('sb-file').textContent = 'No file';
-    document.getElementById('close-project-btn').style.display = 'none';
-    document.getElementById('open-project-btn').style.display = 'flex';
-    // Open the explorer so user can pick a new project
-    openProjectExplorer();
-  } catch(e) {
-    console.error('Close project error:', e);
-  }
+  }, currentName);
 }
 
 function explorerGoUp() {
   if (!explorerState.currentPath) return;
   const parts = explorerState.currentPath.split('/').filter(Boolean);
-  if (parts.length <= 1) {
-    explorerBrowse('/');
-  } else {
-    parts.pop();
-    explorerBrowse('/' + parts.join('/'));
-  }
+  parts.pop();
+  explorerBrowse(parts.length ? '/' + parts.join('/') : '/');
+}
+function explorerNavigateTo(path) { if (path) explorerBrowse(path); }
+function explorerRefresh() { if (explorerState.currentPath) explorerBrowse(explorerState.currentPath); }
+
+// ══════════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════════
+async function loadSystemInfo() {
+  try {
+    const res = await fetch('/api/system');
+    const data = await res.json();
+    if (data.workspace) {
+      WORKSPACE = data.workspace;
+      termCwd = data.workspace;
+      updateTermCwd(data.workspace);
+    }
+    const tools = Object.entries(data.tools || {}).filter(([,v]) => v).map(([k]) => k);
+    outputLog(`TermuxPad ready. Tools: ${tools.join(', ') || 'none detected'}`, 'info');
+  } catch(e) { console.error('loadSystemInfo:', e); }
 }
 
-function explorerNavigateTo(path) {
-  if (!path) return;
-  explorerBrowse(path);
-}
-
-function explorerRefresh() {
-  if (explorerState.currentPath) explorerBrowse(explorerState.currentPath);
-}
-
-// Keyboard: Escape closes explorer, Enter opens selected
-document.addEventListener('keydown', e => {
-  const overlay = document.getElementById('explorer-overlay');
-  if (overlay.classList.contains('show')) {
-    if (e.key === 'Escape') closeProjectExplorer();
-    if (e.key === 'Enter' && explorerState.selectedType === 'dir') confirmOpenProject();
-    if (e.ctrlKey && e.key === 'o') { e.preventDefault(); }
-  } else {
-    if (e.ctrlKey && e.key === 'o') { e.preventDefault(); openProjectExplorer(); }
-  }
-});
-
-// ── Init ───────────────────────────────────────────────────────────────────
 window.addEventListener('load', async () => {
   initEditor();
-  await refreshTree();
   await loadSystemInfo();
+  await refreshTree();
 
-  // Keyboard shortcuts
   document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeModal(); closeProjectExplorer(); return; }
     if (e.ctrlKey && e.key === 's') { e.preventDefault(); saveCurrentFile(); }
     if (e.ctrlKey && e.key === 'n') { e.preventDefault(); newFileDialog(); }
     if (e.ctrlKey && e.key === 'b') { e.preventDefault(); toggleSidebar(); }
     if (e.ctrlKey && e.key === 'o') { e.preventDefault(); openProjectExplorer(); }
     if (e.key === 'F5') { e.preventDefault(); runCode(); }
-    if (e.key === 'Escape') closeModal();
   });
-  
-  // Auto-open explorer on first load
+
+  // Explorer keyboard nav
+  document.getElementById('explorer-overlay').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && explorerState.selectedType === 'dir') confirmOpenProject();
+  });
+
   openProjectExplorer();
 });
 </script>
@@ -1980,7 +1936,7 @@ window.addEventListener('load', async () => {
       <div class="ql-label" style="margin-top:12px">Recent</div>
       <div id="ql-recent"></div>
     </div>
-    <div style="position:relative; flex:1; display:flex; flex-direction:column; overflow:hidden;">
+    <div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0;">
       <div id="explorer-files"></div>
       <div id="explorer-loading">Loading...</div>
     </div>
