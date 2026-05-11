@@ -79,7 +79,8 @@ function initEditor() {
     const c = editor.getCursor();
     document.getElementById('sb-cursor').textContent = `Ln ${c.line + 1}, Col ${c.ch + 1}`;
   });
-  document.querySelector('.CodeMirror').style.display = 'none';
+  // Start hidden; shown when a file is opened
+  document.getElementById('cm-host').style.display = 'none';
 }
 
 // ── File Tree ─────────────────────────────────────────────────────────────────
@@ -193,9 +194,9 @@ function closeTab(id, event) {
 }
 
 function showEditor(show) {
-  document.getElementById('no-file').style.display = show ? 'none' : 'flex';
-  const cm = document.querySelector('.CodeMirror');
-  if (cm) cm.style.display = show ? 'block' : 'none';
+  document.getElementById('no-file').style.display   = show ? 'none'  : 'flex';
+  document.getElementById('cm-host').style.display   = show ? 'flex'  : 'none';
+  if (show && editor) setTimeout(() => editor.refresh(), 20);
 }
 
 // ── Language / Theme ──────────────────────────────────────────────────────────
@@ -211,7 +212,11 @@ function changeLanguage(lang) {
 
 function changeTheme(theme) {
   state.theme = theme;
-  if (editor) editor.setOption('theme', theme);
+  if (editor) {
+    editor.setOption('theme', theme);
+    setTimeout(() => editor.refresh(), 10);
+  }
+  document.body.setAttribute('data-theme', theme);
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────

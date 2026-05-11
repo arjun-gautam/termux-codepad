@@ -73,12 +73,18 @@ function clearOutput(e) {
   document.getElementById('terminal-text').innerHTML = '';
 }
 
+function setPanelHeight(px) {
+  const p = document.getElementById('output-panel');
+  p.style.height    = px + 'px';
+  p.style.minHeight = px + 'px';
+  p.style.maxHeight = px + 'px';
+}
+
 function expandPanel() {
   if (state.panelCollapsed) {
     state.panelCollapsed = false;
-    const p = document.getElementById('output-panel');
-    p.classList.remove('collapsed');
-    p.style.height = '220px';
+    document.getElementById('output-panel').classList.remove('collapsed');
+    setPanelHeight(220);
   }
 }
 
@@ -87,7 +93,7 @@ function togglePanel(e) {
   state.panelCollapsed = !state.panelCollapsed;
   const p = document.getElementById('output-panel');
   p.classList.toggle('collapsed', state.panelCollapsed);
-  if (!state.panelCollapsed) p.style.height = '220px';
+  if (!state.panelCollapsed) setPanelHeight(220);
 }
 
 function switchPanelTab(name, e) {
@@ -111,25 +117,31 @@ function initPanelResize() {
     resizeStartY = e.clientY;
     resizeStartH = document.getElementById('output-panel').offsetHeight;
     document.body.style.cursor = 'row-resize';
+    e.preventDefault();
   });
   document.addEventListener('mousemove', e => {
     if (!panelResizing) return;
     const newH = Math.max(80, Math.min(600, resizeStartH + resizeStartY - e.clientY));
-    document.getElementById('output-panel').style.height = newH + 'px';
     document.getElementById('output-panel').classList.remove('collapsed');
     state.panelCollapsed = false;
+    setPanelHeight(newH);
   });
-  document.addEventListener('mouseup', () => { panelResizing = false; document.body.style.cursor = ''; });
+  document.addEventListener('mouseup', () => {
+    if (!panelResizing) return;
+    panelResizing = false;
+    document.body.style.cursor = '';
+  });
 
   resizeEl.addEventListener('touchstart', e => {
     panelResizing = true;
     resizeStartY = e.touches[0].clientY;
     resizeStartH = document.getElementById('output-panel').offsetHeight;
-  });
+    e.preventDefault();
+  }, { passive: false });
   document.addEventListener('touchmove', e => {
     if (!panelResizing) return;
     const newH = Math.max(80, Math.min(500, resizeStartH + resizeStartY - e.touches[0].clientY));
-    document.getElementById('output-panel').style.height = newH + 'px';
+    setPanelHeight(newH);
   });
   document.addEventListener('touchend', () => { panelResizing = false; });
 }
