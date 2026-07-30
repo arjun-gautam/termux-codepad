@@ -32,6 +32,16 @@ window.addEventListener('load', async () => {
   await loadSystemInfo();
   await refreshTree();
 
+  // Load saved theme preference
+  try {
+    const savedTheme = localStorage.getItem('tpad_theme');
+    if (savedTheme) {
+      state.theme = savedTheme;
+      document.getElementById('theme-select').value = savedTheme;
+      changeTheme(savedTheme);
+    }
+  } catch (e) {}
+
   // Wire toolbar selects (done here so editor is guaranteed initialized)
   document.getElementById('theme-select').addEventListener('change', function () {
     changeTheme(this.value);

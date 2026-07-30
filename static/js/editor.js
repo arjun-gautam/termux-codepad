@@ -242,11 +242,27 @@ function changeLanguage(lang) {
 
 function changeTheme(theme) {
   state.theme = theme;
+  
+  // Determine if this is a light theme
+  const lightThemes = ['default', 'eclipse', 'elegant', 'neat'];
+  const isLight = lightThemes.includes(theme);
+  
+  // Update UI theme
+  if (isLight) {
+    document.documentElement.setAttribute('data-ui-theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-ui-theme');
+  }
+  
   if (editor) {
     editor.setOption('theme', theme);
     setTimeout(() => editor.refresh(), 10);
   }
-  document.body.setAttribute('data-theme', theme);
+  
+  // Save preference
+  try {
+    localStorage.setItem('tpad_theme', theme);
+  } catch (e) {}
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────

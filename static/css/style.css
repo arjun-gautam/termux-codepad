@@ -28,6 +28,30 @@
   --panel-h: 220px;
 }
 
+/* Light theme variables */
+:root[data-ui-theme="light"] {
+  --bg0: #ffffff;
+  --bg1: #f6f8fa;
+  --bg2: #eef1f4;
+  --bg3: #e1e4e8;
+  --bg4: #d1d5da;
+  --border: #d0d7de;
+  --border2: #afb8c1;
+  --fg0: #24292f;
+  --fg1: #57606a;
+  --fg2: #6e7781;
+  --fg3: #848d97;
+  --accent: #0969da;
+  --accent2: #0550ae;
+  --green: #1a7f37;
+  --red: #cf222e;
+  --yellow: #bf8700;
+  --orange: #bc4c00;
+  --purple: #8250df;
+  --cyan: #1b7c83;
+  --pink: #a0111f;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -356,6 +380,14 @@ body {
 .CodeMirror-linenumber { color: var(--fg3) !important; padding: 0 8px !important; }
 .CodeMirror-activeline-background { background: rgba(255,255,255,0.05) !important; }
 .CodeMirror-cursor { border-left: 2px solid var(--accent) !important; }
+
+/* Light theme CodeMirror adjustments */
+:root[data-ui-theme="light"] .CodeMirror-activeline-background { 
+  background: rgba(0,0,0,0.05) !important; 
+}
+:root[data-ui-theme="light"] .CodeMirror-gutters { 
+  background: var(--bg1) !important; 
+}
 
 .no-file-msg {
   flex: 1;
