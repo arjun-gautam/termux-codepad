@@ -59,7 +59,7 @@ Navigate to: **http://localhost:8080**
 | **Multi-tab Editor** | Open multiple files simultaneously |
 | **Terminal** | Built-in bash terminal with history |
 | **Stdin Support** | Provide input to programs before running |
-| **Themes** | Dracula, Monokai, Material, Nord |
+| **Themes** | Dracula, Monokai, Material, Nord (dark) + Default, Eclipse, Elegant, Neat (light) |
 | **Resizable Panels** | Drag panel borders to resize |
 | **Code Folding** | Collapse/expand code blocks |
 | **Bracket Matching** | Auto-close and highlight matching brackets |
