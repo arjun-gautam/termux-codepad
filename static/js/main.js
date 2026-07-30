@@ -9,8 +9,14 @@ async function loadSystemInfo() {
       termCwd = data.workspace;
       updateTermCwd(data.workspace);
     }
+    // Store quick links for explorer
+    if (data.quick_links) {
+      explorerState.quickLinks = data.quick_links;
+    }
     const tools = Object.entries(data.tools || {}).filter(([, v]) => v).map(([k]) => k);
-    outputLog(`TermuxPad ready. Tools: ${tools.join(', ') || 'none detected'}`, 'info');
+    const platform = data.is_termux ? 'Termux (Android)' : 'Linux';
+    outputLog(`TermuxPad ready on ${platform}`, 'info');
+    outputLog(`Tools available: ${tools.join(', ') || 'none detected'}`, 'info');
   } catch (e) { console.error('loadSystemInfo:', e); }
 }
 

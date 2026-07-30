@@ -114,13 +114,31 @@ function renderTree(items, container, parentPath) {
       ? Icons.folder(14)
       : getLangIconSvg(getLangByExt(item.name));
 
-    el.innerHTML = `
-      <span class="icon">${iconHtml}</span>
-      <span class="name">${item.name}</span>
-      <div class="tree-actions">
-        <button class="tree-action-btn" title="Rename" onclick="treeRename(event,'${item.path.replace(/'/g, "\\'")}')">${Icons.rename(12)}</button>
-        <button class="tree-action-btn" title="Delete" onclick="treeDelete(event,'${item.path.replace(/'/g, "\\'")}')">${Icons.trash(12)}</button>
-      </div>`;
+    // Escape path for onclick attributes to prevent XSS
+    const escapedPath = item.path.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+    
+    if (item.type === 'dir') {
+      // Directory item with create actions
+      el.innerHTML = `
+        <span class="icon">${iconHtml}</span>
+        <span class="name">${escapeHtml(item.name)}</span>
+        <div class="tree-actions">
+          <button class="tree-action-btn tree-create-btn" title="New File Here" onclick="newFileDialog('${escapedPath}'); event.stopPropagation();">${Icons.filePlus(12)}</button>
+          <button class="tree-action-btn tree-create-btn" title="New Folder Here" onclick="newFolderDialog('${escapedPath}'); event.stopPropagation();">${Icons.folder(12)}</button>
+          <span class="tree-action-sep"></span>
+          <button class="tree-action-btn" title="Rename" onclick="treeRename(event,'${escapedPath}')">${Icons.rename(12)}</button>
+          <button class="tree-action-btn" title="Delete" onclick="treeDelete(event,'${escapedPath}')">${Icons.trash(12)}</button>
+        </div>`;
+    } else {
+      // File item
+      el.innerHTML = `
+        <span class="icon">${iconHtml}</span>
+        <span class="name">${escapeHtml(item.name)}</span>
+        <div class="tree-actions">
+          <button class="tree-action-btn" title="Rename" onclick="treeRename(event,'${escapedPath}')">${Icons.rename(12)}</button>
+          <button class="tree-action-btn" title="Delete" onclick="treeDelete(event,'${escapedPath}')">${Icons.trash(12)}</button>
+        </div>`;
+    }
 
     if (item.type === 'file') {
       el.addEventListener('click', () => openFile(item.path));
@@ -143,6 +161,13 @@ function renderTree(items, container, parentPath) {
     }
     container.appendChild(el);
   });
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -170,7 +195,7 @@ function activateTab(id) {
   }
   state.activeTab = id;
   showEditor(true);
-  editor.setValue(tab.content);
+  editor.setValue(tab.content || '');
   editor.setOption('mode', (LANG_MAP[tab.language] || {}).mode || 'text/plain');
   document.getElementById('lang-select').value = tab.language;
   document.getElementById('sb-file').textContent = tab.name;
@@ -178,6 +203,11 @@ function activateTab(id) {
   renderTabs();
   editor.refresh();
   editor.focus();
+  // Scroll active tab into view
+  setTimeout(() => {
+    const activeTabEl = document.querySelector('.tab.active');
+    if (activeTabEl) activeTabEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }, 50);
 }
 
 function closeTab(id, event) {

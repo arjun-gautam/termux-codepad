@@ -5,6 +5,7 @@ const explorerState = {
   currentPath: null,
   selectedPath: null,
   selectedType: null,
+  quickLinks: [],
 };
 
 let recentProjects = [];
@@ -15,16 +16,91 @@ function saveRecent(path) {
   try { localStorage.setItem('tpad_recent', JSON.stringify(recentProjects)); } catch (_) {}
 }
 
+// ── Load Quick Links ──────────────────────────────────────────────────────────
+async function loadQuickLinks() {
+  try {
+    const res = await fetch('/api/system');
+    const data = await res.json();
+    if (data.quick_links) {
+      explorerState.quickLinks = data.quick_links;
+      renderQuickLinks();
+    }
+  } catch (e) {
+    console.error('Failed to load quick links:', e);
+  }
+}
+
+function renderQuickLinks() {
+  const container = document.getElementById('ql-items-container');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  explorerState.quickLinks.forEach(link => {
+    const div = document.createElement('div');
+    div.className = 'ql-item';
+    div.title = link.path;
+    
+    // Get the icon SVG
+    const iconMap = {
+      'home': Icons.home(13),
+      'hdd': Icons.hdd(13),
+      'download': Icons.download(13),
+      'phone': Icons.phone(13),
+      'lightning': Icons.lightning(13),
+      'file': Icons.file(13),
+    };
+    const icon = iconMap[link.icon] || Icons.folder(13);
+    
+    div.innerHTML = `${icon}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${link.name}</span>`;
+    div.onclick = () => {
+      // Check if path exists before navigating
+      fetch('/api/explorer/browse?path=' + encodeURIComponent(link.path))
+        .then(r => r.json())
+        .then(d => {
+          if (d.error) {
+            // Path doesn't exist, show message
+            outputLog(`Path not found: ${link.path}`, 'warn');
+            expandPanel();
+          } else {
+            explorerBrowse(link.path);
+          }
+        })
+        .catch(() => {
+          outputLog(`Cannot access: ${link.path}`, 'err');
+          expandPanel();
+        });
+    };
+    container.appendChild(div);
+  });
+}
+
 // ── Open / Close Explorer ─────────────────────────────────────────────────────
 function openProjectExplorer() {
-  document.getElementById('explorer-overlay').classList.add('show');
+  const overlay = document.getElementById('explorer-overlay');
+  overlay.classList.add('show');
+  
+  // Load quick links if not already loaded
+  if (explorerState.quickLinks.length === 0) {
+    loadQuickLinks();
+  } else {
+    renderQuickLinks();
+  }
+  
   renderRecentLinks();
-  const startPath = explorerState.currentPath || WORKSPACE || '/data/data/com.termux/files/home';
+  const startPath = explorerState.currentPath || WORKSPACE || (explorerState.quickLinks[0]?.path || '/tmp');
   explorerBrowse(startPath);
+  // Focus path bar for keyboard navigation
+  setTimeout(() => {
+    document.getElementById('explorer-path-bar').focus();
+  }, 100);
 }
 
 function closeProjectExplorer() {
-  document.getElementById('explorer-overlay').classList.remove('show');
+  const overlay = document.getElementById('explorer-overlay');
+  overlay.classList.remove('show');
+  // Clear selection state
+  explorerState.selectedPath = null;
+  explorerState.selectedType = null;
 }
 
 // ── Recent Links ──────────────────────────────────────────────────────────────
@@ -65,11 +141,13 @@ async function explorerBrowse(path) {
 function renderExplorerFiles(items) {
   const container = document.getElementById('explorer-files');
   container.innerHTML = '';
-  if (!items.length) {
+  
+  if (!items || !items.length) {
     container.innerHTML = `<div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:160px;color:var(--fg3);gap:8px;font-size:12px">
       <span style="opacity:0.5">${Icons.folderOpen(32)}</span>Empty folder</div>`;
     return;
   }
+  
   const dirs  = items.filter(i => i.type === 'dir');
   const files = items.filter(i => i.type === 'file');
   [...dirs, ...files].forEach(item => {
@@ -78,13 +156,30 @@ function renderExplorerFiles(items) {
     const iconHtml = item.type === 'dir'
       ? Icons.folderLg(36)
       : getFileIconSvg(item.name, 32);
-    el.innerHTML = `<div class="ei-icon">${iconHtml}</div><div class="ei-name">${item.name}</div>`;
+    
     if (item.type === 'dir') {
+      // Directory with action buttons
+      el.innerHTML = `
+        <div class="ei-icon">${iconHtml}</div>
+        <div class="ei-name">${item.name}</div>
+        <div class="ei-actions">
+          <button class="ei-action-btn" title="New File in ${item.name}" onclick="event.stopPropagation(); explorerNewFileIn('${item.path.replace(/'/g, "\\'")}', '${item.name.replace(/'/g, "\\'")}')">
+            ${Icons.filePlus(14)}
+          </button>
+          <button class="ei-action-btn" title="New Folder in ${item.name}" onclick="event.stopPropagation(); explorerNewFolderIn('${item.path.replace(/'/g, "\\'")}', '${item.name.replace(/'/g, "\\'")}')">
+            ${Icons.folder(14)}
+          </button>
+        </div>`;
+      
       el.addEventListener('click', ev => {
+        // Check if click is on action button
+        if (ev.target.closest('.ei-action-btn')) return;
         if (ev.detail === 2) { explorerBrowse(item.path); return; }
         selectExplorerItem(el, item.path, 'dir');
       });
     } else {
+      // File item (no action buttons)
+      el.innerHTML = `<div class="ei-icon">${iconHtml}</div><div class="ei-name">${item.name}</div>`;
       el.addEventListener('click', () => selectExplorerItem(el, item.path, 'file'));
     }
     container.appendChild(el);
@@ -216,3 +311,140 @@ function explorerGoUp() {
 }
 function explorerNavigateTo(path) { if (path) explorerBrowse(path); }
 function explorerRefresh() { if (explorerState.currentPath) explorerBrowse(explorerState.currentPath); }
+
+// ── Create File/Folder in Explorer ────────────────────────────────────────────
+function explorerNewFile() {
+  if (!explorerState.currentPath) {
+    outputLog('No directory selected', 'warn');
+    return;
+  }
+  
+  openModal('New File', 'filename.py', async (name) => {
+    if (!name) return;
+    const clean = name.trim();
+    if (!clean) return;
+    
+    const filePath = explorerState.currentPath + '/' + clean;
+    
+    try {
+      const res = await fetch('/api/file/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, type: 'file' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        explorerRefresh();
+        outputLog('Created: ' + clean, 'success');
+        setStatus('File created', 'success');
+        setTimeout(() => setStatus('Ready', ''), 2000);
+      } else {
+        outputLog('Create failed: ' + (data.error || 'unknown'), 'err');
+        expandPanel();
+      }
+    } catch (e) {
+      outputLog('Create error: ' + e.message, 'err');
+      expandPanel();
+    }
+  });
+}
+
+function explorerNewFolder() {
+  if (!explorerState.currentPath) {
+    outputLog('No directory selected', 'warn');
+    return;
+  }
+  
+  openModal('New Folder', 'folder-name', async (name) => {
+    if (!name) return;
+    const clean = name.trim();
+    if (!clean) return;
+    
+    const folderPath = explorerState.currentPath + '/' + clean;
+    
+    try {
+      const res = await fetch('/api/file/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folderPath, type: 'dir' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        explorerRefresh();
+        outputLog('Created folder: ' + clean, 'success');
+        setStatus('Folder created', 'success');
+        setTimeout(() => setStatus('Ready', ''), 2000);
+      } else {
+        outputLog('Create folder failed: ' + (data.error || 'unknown'), 'err');
+        expandPanel();
+      }
+    } catch (e) {
+      outputLog('Create folder error: ' + e.message, 'err');
+      expandPanel();
+    }
+  });
+}
+
+// Create file inside a specific directory
+function explorerNewFileIn(dirPath, dirName) {
+  openModal(`New File in "${dirName}"`, 'filename.py', async (name) => {
+    if (!name) return;
+    const clean = name.trim();
+    if (!clean) return;
+    
+    const filePath = dirPath + '/' + clean;
+    
+    try {
+      const res = await fetch('/api/file/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath, type: 'file' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        explorerRefresh();
+        outputLog(`Created: ${dirName}/${clean}`, 'success');
+        setStatus('File created', 'success');
+        setTimeout(() => setStatus('Ready', ''), 2000);
+      } else {
+        outputLog('Create failed: ' + (data.error || 'unknown'), 'err');
+        expandPanel();
+      }
+    } catch (e) {
+      outputLog('Create error: ' + e.message, 'err');
+      expandPanel();
+    }
+  });
+}
+
+// Create folder inside a specific directory
+function explorerNewFolderIn(dirPath, dirName) {
+  openModal(`New Folder in "${dirName}"`, 'folder-name', async (name) => {
+    if (!name) return;
+    const clean = name.trim();
+    if (!clean) return;
+    
+    const folderPath = dirPath + '/' + clean;
+    
+    try {
+      const res = await fetch('/api/file/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folderPath, type: 'dir' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        explorerRefresh();
+        outputLog(`Created folder: ${dirName}/${clean}`, 'success');
+        setStatus('Folder created', 'success');
+        setTimeout(() => setStatus('Ready', ''), 2000);
+      } else {
+        outputLog('Create folder failed: ' + (data.error || 'unknown'), 'err');
+        expandPanel();
+      }
+    } catch (e) {
+      outputLog('Create folder error: ' + e.message, 'err');
+      expandPanel();
+    }
+  });
+}

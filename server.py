@@ -199,13 +199,25 @@ def write_file():
 @app.route('/api/file/new', methods=['POST'])
 def new_file():
     data = request.get_json() or {}
-    path = data.get('path', '').strip().lstrip('/')
+    path = data.get('path', '').strip()
     ftype = data.get('type', 'file')
     if not path:
         return jsonify({'error': 'No path provided'}), 400
-    target = safe_path(path)
-    if not target:
-        return jsonify({'error': 'Invalid path'}), 400
+    
+    # Handle absolute paths (for explorer) or relative paths (for workspace)
+    if os.path.isabs(path):
+        target = os.path.realpath(path)
+        # Safety check: ensure it's not trying to create in system directories
+        restricted = ['/bin', '/sbin', '/usr', '/lib', '/lib64', '/boot', '/sys', '/proc', '/dev', '/etc']
+        if any(target.startswith(r) for r in restricted):
+            return jsonify({'error': 'Cannot create files in system directories'}), 403
+    else:
+        # Relative path - use safe_path
+        path = path.lstrip('/')
+        target = safe_path(path)
+        if not target:
+            return jsonify({'error': 'Invalid path'}), 400
+    
     try:
         if ftype == 'dir':
             os.makedirs(target, exist_ok=True)
@@ -278,6 +290,44 @@ def terminal_cmd():
         abs_cwd = active_workspace
 
     home = os.path.expanduser('~')
+    
+    # Check for interactive commands that won't work
+    interactive_cmds = ['nano', 'vim', 'vi', 'emacs', 'htop', 'top', 'less', 'more', 'man', 'ssh', 'sudo -i', 'python', 'python3', 'node', 'irb', 'bash', 'sh']
+    cmd_base = cmd.split()[0] if cmd.split() else ''
+    
+    # Special case: python/node with file argument is OK, interactive shell is not
+    if cmd_base in ['python', 'python3', 'node', 'irb', 'bash', 'sh']:
+        # If there's a file argument, allow it
+        if len(cmd.split()) <= 1:
+            return jsonify({
+                'stdout': '',
+                'stderr': f'❌ Interactive program "{cmd_base}" cannot run in this terminal.\n'
+                          f'💡 Tip: Use the editor to edit files, not nano/vim.\n'
+                          f'   Or run: {cmd_base} yourfile.py\n',
+                'returncode': 1,
+                'cwd': abs_cwd,
+            })
+    elif cmd_base in interactive_cmds:
+        suggestions = {
+            'nano': 'Use the built-in editor (Ctrl+N or Open File)',
+            'vim': 'Use the built-in editor (Ctrl+N or Open File)',
+            'vi': 'Use the built-in editor (Ctrl+N or Open File)',
+            'emacs': 'Use the built-in editor (Ctrl+N or Open File)',
+            'htop': 'Use: ps aux | grep <process>',
+            'top': 'Use: ps aux',
+            'less': 'Use: cat filename',
+            'more': 'Use: cat filename',
+            'man': 'Use: <command> --help',
+            'ssh': 'SSH requires a real terminal. Use a separate terminal app.',
+        }
+        suggestion = suggestions.get(cmd_base, 'This command requires an interactive terminal.')
+        return jsonify({
+            'stdout': '',
+            'stderr': f'❌ Interactive program "{cmd_base}" cannot run in this terminal.\n'
+                      f'💡 Tip: {suggestion}\n',
+            'returncode': 1,
+            'cwd': abs_cwd,
+        })
 
     try:
         # Wrap command so we can track cwd after `cd`
@@ -431,11 +481,37 @@ def system_info():
             available[t] = subprocess.run(['which', t], capture_output=True).returncode == 0
         except Exception:
             available[t] = False
+    
+    # Detect platform
+    is_termux = os.path.exists('/data/data/com.termux')
+    
+    # Generate quick access paths based on platform
+    if is_termux:
+        quick_links = [
+            {'name': 'Home', 'path': '/data/data/com.termux/files/home', 'icon': 'home'},
+            {'name': 'Storage', 'path': '/data/data/com.termux/files/home/storage/shared', 'icon': 'hdd'},
+            {'name': 'Downloads', 'path': '/data/data/com.termux/files/home/storage/downloads', 'icon': 'download'},
+            {'name': 'SDCard', 'path': '/sdcard', 'icon': 'phone'},
+            {'name': 'Tmp', 'path': '/tmp', 'icon': 'lightning'},
+        ]
+    else:
+        # Linux desktop paths
+        home = os.path.expanduser('~')
+        quick_links = [
+            {'name': 'Home', 'path': home, 'icon': 'home'},
+            {'name': 'Documents', 'path': os.path.join(home, 'Documents'), 'icon': 'file'},
+            {'name': 'Downloads', 'path': os.path.join(home, 'Downloads'), 'icon': 'download'},
+            {'name': 'Desktop', 'path': os.path.join(home, 'Desktop'), 'icon': 'hdd'},
+            {'name': 'Tmp', 'path': '/tmp', 'icon': 'lightning'},
+        ]
+    
     return jsonify({
         'workspace': active_workspace,
         'python': sys.version,
         'platform': sys.platform,
+        'is_termux': is_termux,
         'tools': available,
+        'quick_links': quick_links,
     })
 
 

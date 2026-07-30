@@ -6,21 +6,32 @@ async function openFile(path) {
   if (existing) { activateTab(existing.id); return; }
   try {
     const res = await fetch('/api/file?path=' + encodeURIComponent(path));
-    if (!res.ok) { outputLog('Cannot open: ' + path, 'err'); return; }
+    if (!res.ok) { 
+      outputLog('Cannot open: ' + path + ' (HTTP ' + res.status + ')', 'err'); 
+      expandPanel();
+      return; 
+    }
     const data = await res.json();
-    if (data.error) { outputLog('Cannot open: ' + data.error, 'err'); return; }
+    if (data.error) { 
+      outputLog('Cannot open: ' + data.error, 'err'); 
+      expandPanel();
+      return; 
+    }
     const lang = getLangByExt(data.name);
     const tab = {
       id: 'tab_' + Date.now() + '_' + Math.random().toString(36).slice(2),
       path,
       name: data.name,
-      content: data.content,
+      content: data.content || '',
       modified: false,
       language: lang,
     };
     state.tabs.push(tab);
     activateTab(tab.id);
-  } catch (e) { outputLog('Error opening file: ' + e.message, 'err'); }
+  } catch (e) { 
+    outputLog('Error opening file: ' + e.message, 'err'); 
+    expandPanel();
+  }
 }
 
 async function saveCurrentFile() {
@@ -108,36 +119,59 @@ function treeRename(e, path) {
   openModal('Rename', name, async (newName) => {
     if (!newName || newName === name) return;
     const newPath = path.includes('/') ? path.replace(/[^/]+$/, newName) : newName;
-    const res = await fetch('/api/file/rename', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ old_path: path, new_path: newPath }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      const tab = state.tabs.find(t => t.path === path);
-      if (tab) { tab.path = newPath; tab.name = newName; renderTabs(); }
-      await refreshTree();
-    } else {
-      outputLog('Rename failed: ' + (data.error || ''), 'err');
+    
+    try {
+      const res = await fetch('/api/file/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_path: path, new_path: newPath }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const tab = state.tabs.find(t => t.path === path);
+        if (tab) { 
+          tab.path = newPath; 
+          tab.name = newName; 
+          renderTabs(); 
+        }
+        await refreshTree();
+        setStatus('Renamed to: ' + newName, 'success');
+        setTimeout(() => setStatus('Ready', ''), 2000);
+      } else {
+        outputLog('Rename failed: ' + (data.error || ''), 'err');
+        expandPanel();
+      }
+    } catch (err) {
+      outputLog('Rename error: ' + err.message, 'err');
+      expandPanel();
     }
   }, name);
 }
 
-function treeDelete(e, path) {
+async function treeDelete(e, path) {
   e.stopPropagation();
-  if (!confirm(`Delete "${path.split('/').pop()}"?`)) return;
-  fetch('/api/file/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  }).then(r => r.json()).then(d => {
+  const name = path.split('/').pop();
+  if (!confirm(`Delete "${name}"?`)) return;
+  
+  try {
+    const res = await fetch('/api/file/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const d = await res.json();
     if (d.success) {
       const tab = state.tabs.find(t => t.path === path);
       if (tab) closeTab(tab.id);
-      refreshTree();
+      await refreshTree();
+      setStatus('Deleted: ' + name, 'success');
+      setTimeout(() => setStatus('Ready', ''), 2000);
     } else {
       outputLog('Delete failed: ' + (d.error || ''), 'err');
+      expandPanel();
     }
-  });
+  } catch (err) {
+    outputLog('Delete error: ' + err.message, 'err');
+    expandPanel();
+  }
 }

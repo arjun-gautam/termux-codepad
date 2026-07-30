@@ -40,7 +40,7 @@ async function runCode() {
     setStatus('Failed', 'error');
   } finally {
     runBtn.disabled = false;
-    runBtn.innerHTML = Icons.play(13) + '<span>Run</span>';
+    runBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/></svg><span>Run</span>`;
   }
 }
 
@@ -70,7 +70,7 @@ function outputClear() { document.getElementById('output-text').innerHTML = ''; 
 function clearOutput(e) {
   e && e.stopPropagation();
   outputClear();
-  document.getElementById('terminal-text').innerHTML = '';
+  clearTerminal();
 }
 
 function setPanelHeight(px) {
@@ -105,6 +105,14 @@ function switchPanelTab(name, e) {
   const pane = document.getElementById(`pane-${name}`);
   if (pane) pane.classList.add('active');
   expandPanel();
+  
+  // Focus terminal input when switching to terminal
+  if (name === 'terminal') {
+    setTimeout(() => {
+      const termInput = document.getElementById('terminal-input');
+      if (termInput) termInput.focus();
+    }, 100);
+  }
 }
 
 // ── Panel Resize ──────────────────────────────────────────────────────────────
